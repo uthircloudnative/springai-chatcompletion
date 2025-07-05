@@ -9,21 +9,31 @@ This project is a Spring Boot REST API that integrates with Google Vertex AI Gem
 - Google Cloud project and credentials (application-default credentials)
 
 ## Features
-- Exposes a REST endpoint to interact with Vertex AI Gemini LLM.
+- Exposes both blocking and streaming REST endpoints to interact with Vertex AI Gemini LLM.
 - Clean separation of controller and service layers.
 - Easily configurable via `application.properties`.
 
 ## How It Works
 
-### 1. REST Endpoint
+### 1. REST Endpoints
 
-The main endpoint is:
-
+#### Blocking Endpoint
 ```
 GET /api/v1/vertexai/chat?prompt=your_message
 ```
 - `prompt` is the user’s input to the LLM.
 - The response is a JSON object with the generated message.
+
+#### Streaming Endpoint
+```
+GET /api/v1/vertexai/chat/stream?prompt=your_message
+```
+- Streams the LLM response as newline-delimited JSON (NDJSON), allowing clients to process and display each chunk as it arrives in real time.
+
+**Example usage with curl:**
+```sh
+curl --no-buffer "http://localhost:8080/api/v1/vertexai/chat/stream?prompt=your_message"
+```
 
 ### 2. Controller Layer
 Handles HTTP requests and delegates to the service:
@@ -40,6 +50,10 @@ public class VertexAIChatController {
     public Map<String, String> chat(@RequestParam(value="prompt") String prompt) {
         return vertexAIChatService.chat(prompt);
     }
+    @GetMapping(value="/vertexai/chat/stream", produces = MediaType.APPLICATION_NDJSON_VALUE)
+    public Flux<String> chatStream(@RequestParam(value="prompt") String prompt ){
+        return vertexAIChatService.chatStream(prompt);
+    }
 }
 ```
 
@@ -53,13 +67,23 @@ public class VertexAIChatService {
     public VertexAIChatService(VertexAiGeminiChatModel vertexAiGeminiChatModel) {
         this.vertexAiGeminiChatModel = vertexAiGeminiChatModel;
     }
+    // Blocking call
     public Map<String, String> chat(String prompt) {
         return Map.of("message", vertexAiGeminiChatModel.call(prompt));
     }
+    // Streaming call
+    public Flux<String> chatStream(String prompt) {
+        UserMessage userMessage = new UserMessage(prompt);
+        Prompt userPrompt = Prompt.builder()
+                                  .messages(userMessage)
+                                  .build();
+        return vertexAiGeminiChatModel.stream(userPrompt)
+                                      .map(chatresponse -> chatresponse.getResult().getOutput().getText());
+    }
 }
 ```
-  - Here we are using VertexAiGeminiChatModel.call() method which will act as blocking call.
-  - When request is triggered to LLM it will wait the complete response to be received before giving response back to client.
+- The `chat` method is blocking and waits for the full LLM response.
+- The `chatStream` method streams the LLM response chunk by chunk for real-time delivery to the client.
 
 ### 4. Configuration
 Set your Google Cloud project and model details in `src/main/resources/application.properties`:
@@ -85,13 +109,21 @@ spring.ai.vertex.ai.gemini.chat.options.temperature=0.1
    ```
    ./mvnw spring-boot:run
    ```
-4. Test the endpoint:
-   ```
-   curl "http://localhost:8080/api/v1/vertexai/chat?prompt=Give History of Java"
-   ```
+6. Test the endpoints:
+   - Blocking:
+     ```
+     curl "http://localhost:8080/api/v1/vertexai/chat?prompt=Give History of Java"
+     ```
+   - Streaming:
+     ```
+     curl --no-buffer "http://localhost:8080/api/v1/vertexai/chat/stream?prompt=Give History of Java"
+     ```
 
 ## Key Points
 - Uses Spring AI’s `VertexAiGeminiChatModel` for LLM calls.
 - All LLM logic is encapsulated in the service layer.
+- Supports both blocking and real-time streaming endpoints for flexible client integration.
 - Easily extendable for more endpoints or advanced LLM options.
 
+---
+This README provides a quick technical overview and helps you get started or extend the project further.
